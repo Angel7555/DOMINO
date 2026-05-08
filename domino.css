@@ -1,0 +1,338 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="UTF-8">
+<title>Dominó PRO FIX</title>
+
+<style>
+body {
+    margin: 0;
+    font-family: Arial;
+    background-image: url("imagen.jpg");
+    background-size: cover;
+    color: white;
+    cursor: url('data:image/svg+xml;utf8,\
+<svg xmlns="http://www.w3.org/2000/svg" width="32" height="32">\
+<text y="24" font-size="24">⚔️</text>\
+</svg>') 16 16, auto;
+}
+
+#game { padding: 20px; }
+
+#board {
+    display: flex;
+    flex-wrap: wrap;
+    min-height: 100px;
+    border: 2px solid white;
+    padding: 10px;
+    background: rgba(0,0,0,0.6);
+    margin-bottom: 10px;
+}
+
+.tile {
+    border: 1px solid white;
+    padding: 8px;
+    margin: 4px;
+    background: black;
+    min-width: 40px;
+    text-align: center;
+    cursor: pointer;
+}
+
+button { padding: 10px; margin-right: 10px; }
+
+#message { font-size: 20px; margin-top: 10px; }
+
+/* clima */
+#weather {
+    position: fixed;
+    top:0; left:0;
+    width:100%; height:100%;
+    pointer-events:none;
+    overflow:hidden;
+}
+
+.rain {
+    position:absolute;
+    width:2px;
+    height:20px;
+    background:rgba(173,216,230,0.6);
+    animation: fall linear infinite;
+}
+
+@keyframes fall {
+    from { transform: translateY(-100px); }
+    to { transform: translateY(100vh); }
+}
+
+.snow {
+    position:absolute;
+    width:6px;
+    height:6px;
+    background:white;
+    border-radius:50%;
+    animation: snow linear infinite;
+}
+
+@keyframes snow {
+    from { transform: translateY(-100px); }
+    to { transform: translateY(100vh); }
+}
+</style>
+</head>
+
+<body>
+
+<div id="weather"></div>
+
+<div id="game">
+
+<h2>Dominó PRO FIX</h2>
+
+<div id="timer">Tiempo: 0</div>
+
+<div id="board"></div>
+
+<h3>Tu mano</h3>
+<div id="hand"></div>
+
+<h3>NPC</h3>
+<div id="npcInfo"></div>
+
+<button onclick="passTurn()">Pasar</button>
+<button onclick="restartGame()">Reiniciar</button>
+
+<div id="message"></div>
+
+</div>
+
+<script>
+
+let timer = 0;
+let board = [];
+let players = [[],[],[],[]];
+let currentPlayer = 0;
+let gameOver = false;
+let deck = [];
+
+// ===== DOMINÓ =====
+function createDeck(){
+    let d=[];
+    for(let i=0;i<=6;i++){
+        for(let j=i;j<=6;j++){
+            d.push([i,j]);
+        }
+    }
+    return d.sort(()=>Math.random()-0.5);
+}
+
+// ===== INIT =====
+function init(){
+    board=[];
+    players=[[],[],[],[]];
+    currentPlayer=0;
+    gameOver=false;
+    timer=0;
+
+    deck = createDeck();
+
+    for(let i=0;i<7;i++){
+        for(let p=0;p<4;p++){
+            players[p].push(deck.pop());
+        }
+    }
+
+    document.getElementById("message").innerText="";
+    render();
+}
+
+init();
+
+// ===== RENDER =====
+function render(){
+    let b=document.getElementById("board");
+    let h=document.getElementById("hand");
+    let n=document.getElementById("npcInfo");
+
+    b.innerHTML="";
+    h.innerHTML="";
+    n.innerHTML="";
+
+    board.forEach(t=>{
+        let d=document.createElement("div");
+        d.className="tile";
+        d.innerText=t[0]+"|"+t[1];
+        b.appendChild(d);
+    });
+
+    players[0].forEach((t,i)=>{
+        let d=document.createElement("div");
+        d.className="tile";
+        d.innerText=t[0]+"|"+t[1];
+        d.onclick=()=>play(i);
+        h.appendChild(d);
+    });
+
+    for(let i=1;i<4;i++){
+        let d=document.createElement("div");
+        d.innerText="NPC "+i+" → "+players[i].length+" fichas";
+        n.appendChild(d);
+    }
+}
+
+// ===== JUGAR =====
+function play(i){
+    if(gameOver||currentPlayer!==0) return;
+
+    let t=players[0][i];
+
+    if(board.length===0){
+        board.push(t);
+    } else {
+        let L=board[0][0];
+        let R=board[board.length-1][1];
+
+        if(t[0]===R) board.push(t);
+        else if(t[1]===R) board.push([t[1],t[0]]);
+        else if(t[1]===L) board.unshift(t);
+        else if(t[0]===L) board.unshift([t[1],t[0]]);
+        else return;
+    }
+
+    players[0].splice(i,1);
+
+    if(checkEnd()) return;
+
+    next();
+    render();
+}
+
+// ===== IA NPC (CON ROBO ANTI-ESTANCAMIENTO) =====
+function npcMove(p){
+
+    let L = board.length ? board[0][0] : null;
+    let R = board.length ? board[board.length-1][1] : null;
+
+    // intentar jugar
+    for(let i=0;i<players[p].length;i++){
+        let t=players[p][i];
+
+        if(board.length===0 ||
+           t[0]===L||t[1]===L||
+           t[0]===R||t[1]===R){
+
+            placeNPC(p,i,t);
+            return true;
+        }
+    }
+
+    // ❗ NO se estanca → roba ficha
+    if(deck.length>0){
+        players[p].push(deck.pop());
+        return true;
+    }
+
+    return false;
+}
+
+// colocar ficha NPC
+function placeNPC(p,i,t){
+    let L=board.length?board[0][0]:null;
+    let R=board.length?board[board.length-1][1]:null;
+
+    if(board.length===0){
+        board.push(t);
+    }
+    else if(t[0]===R) board.push(t);
+    else if(t[1]===R) board.push([t[1],t[0]]);
+    else if(t[1]===L) board.unshift(t);
+    else if(t[0]===L) board.unshift([t[1],t[0]]);
+
+    players[p].splice(i,1);
+}
+
+// ===== TURNOS =====
+function next(){
+    if(gameOver) return;
+
+    currentPlayer=(currentPlayer+1)%4;
+
+    render();
+
+    if(checkEnd()) return;
+
+    if(currentPlayer!==0){
+        setTimeout(()=>{
+            npcMove(currentPlayer);
+            render();
+            if(!checkEnd()) next();
+        },400);
+    }
+}
+
+// ===== FIN =====
+function checkEnd(){
+
+    if(players[0].length===0){
+        end("🎉 GANASTE");
+        return true;
+    }
+
+    for(let i=1;i<4;i++){
+        if(players[i].length===0){
+            end("💀 TE GANÓ NPC "+i);
+            return true;
+        }
+    }
+
+    return false;
+}
+
+function end(m){
+    gameOver=true;
+    document.getElementById("message").innerText=m;
+}
+
+// ===== PASAR =====
+function passTurn(){
+    if(!gameOver && currentPlayer===0) next();
+}
+
+// ===== REINICIAR =====
+function restartGame(){
+    init();
+}
+
+// ===== TIMER =====
+setInterval(()=>{
+    if(!gameOver){
+        timer++;
+        document.getElementById("timer").innerText="Tiempo: "+timer;
+    }
+},1000);
+
+// ===== CLIMA =====
+function weather(){
+    let w=document.getElementById("weather");
+
+    for(let i=0;i<20;i++){
+        let r=document.createElement("div");
+        r.className="rain";
+        r.style.left=Math.random()*100+"%";
+        r.style.animationDuration=(0.5+Math.random())+"s";
+        w.appendChild(r);
+
+        let s=document.createElement("div");
+        s.className="snow";
+        s.style.left=Math.random()*100+"%";
+        s.style.animationDuration=(2+Math.random()*3)+"s";
+        w.appendChild(s);
+    }
+}
+
+weather();
+
+</script>
+
+</body>
+</html>
